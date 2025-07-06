@@ -1,10 +1,9 @@
-
 import streamlit as st
 import pandas as pd
 import networkx as nx
 import matplotlib.pyplot as plt
 
-# Load data
+# Cargar datos
 @st.cache_data
 def load_data():
     df_gen = pd.read_csv('resultados_genealogia_actualizados.csv', dtype=str)
@@ -15,100 +14,98 @@ def load_data():
 
 df_gen, df_ird, df_irr = load_data()
 
-# Session history
+# Historial de navegación
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# Search
-def search_horse(q):
-    q = q.lower().strip()
+# Función de búsqueda por registro o nombre+criadero
+def search_horse(query):
+    q = query.lower().strip()
     if q.isdigit():
-        return df_gen[df_gen['registro']==q]
-    return df_gen[df_gen['nombre'].str.lower().str.contains(q) & df_gen['criadero'].str.lower().str.contains(q)]
+        return df_gen[df_gen['registro'] == q]
+    return df_gen[
+        df_gen['nombre'].str.lower().str.contains(q) &
+        df_gen['criadero'].str.lower().str.contains(q)
+    ]
 
-# Display pedigree tree
+# Extraer roles genealógicos
+@st.cache_data
+def extract_roles(df):
+    df = df.copy()
+    df['registro_padre'] = df['padres'].str.split('|').str[0].str.split(':').str[0]
+    df['registro_madre'] = df['padres'].str.split('|').str[1].str.split(':').str[0]
+    def extract_ab(reg_str, idx):
+        parts = reg_str.split('|') if pd.notna(reg_str) else []
+        regs = [p.split(':')[0] for p in parts]
+        regs += [None] * (4 - len(regs))
+        return regs[idx]
+    cols = [
+        'registro_abuelo_paterno', 'registro_abuela_paterna',
+        'registro_abuelo_materno', 'registro_abuela_materna'
+    ]
+    for i, col in enumerate(cols):
+        df[col] = df['abuelos'].apply(lambda x, i=i: extract_ab(x, i))
+    return df
+
+df_gen = extract_roles(df_gen)
+
+# Mostrar árbol genealógico
 def show_tree(row):
     G = nx.DiGraph()
     label = f"{row['nombre']}\n({row['criadero']})"
     G.add_node(label)
-    for r, role in [('registro_padre','Padre'),('registro_madre','Madre')]:
-        anc = row.get(r)
+    for col in ['registro_padre', 'registro_madre']:
+        anc = row.get(col)
         if pd.notna(anc):
             G.add_node(anc)
             G.add_edge(anc, label)
     fig, ax = plt.subplots()
     pos = nx.spring_layout(G)
-    nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=2000, ax=ax)
+    nx.draw(G, pos, with_labels=True, node_color='lightblue', node_size=2000, font_size=8, ax=ax)
     st.pyplot(fig)
 
-# Show horse profile
+# Mostrar ficha del caballo
 def show_profile(row):
-     st.header(f"{row['nombre']} - {row['criadero']} (Reg: {row['registro']})")
-     st.text(f"Nacimiento: {row.get('nacimiento','N/A')}    "
-             f"Sexo: {row.get('sexo','N/A')}    "
-             f"Color: {row.get('color','N/A')}")
-   Color: {row.get('color','N/A')}")
-    # IRD percentile
-    ird_val = df_ird[df_ird['registro']==row['registro']]['IRD'].astype(float)
+    st.header(f"{row['nombre']} - {row['criadero']} (Reg: {row['registro']})")
+    st.text(
+        f"Nacimiento: {row.get('nacimiento','N/A')}    "
+        f"Sexo: {row.get('sexo','N/A')}    "
+        f"Color: {row.get('color','N/A')}"
+    )
+    # IRD y percentil en su año
+    ird_val = df_ird[df_ird['registro'] == row['registro']]['IRD'].astype(float)
     if not ird_val.empty:
-        same_year = df_ird[df_gen['nacimiento']==row['nacimiento']]['IRD'].astype(float)
-        pctl = (ird_val.iloc[0] >= same_year.quantile([0.01*i for i in range(100)])).sum() 
-        st.metric('IRD', f"{ird_val.iloc[0]:.2f}", delta=f"Percentil: {pctl}%")
-
-    # IRR roles
+        year = row.get('nacimiento')
+        merged = df_ird.merge(df_gen[['registro','nacimiento']], on='registro', how='left')
+        same_year = merged[merged['nacimiento'] == year]['IRD'].dropna().astype(float)
+        if not same_year.empty:
+            pctl = (same_year < ird_val.iloc[0]).mean() * 100
+            st.metric('IRD', f"{ird_val.iloc[0]:.2f}", delta=f"Percentil: {pctl:.1f}%")
+        else:
+            st.metric('IRD', f"{ird_val.iloc[0]:.2f}")
+    # IRR por rol
     st.subheader('IRR por rol')
-    irr_row = df_irr[df_irr['registro']==row['registro']]
+    irr_row = df_irr[df_irr['registro'] == row['registro']]
     if not irr_row.empty:
-        for role in ['padre', 'madre', 'abuelo_paterno', 'abuela_paterna', 'abuelo_materno', 'abuela_materna']:
+        for role in ['padre','madre','abuelo_paterno','abuela_paterna','abuelo_materno','abuela_materna']:
             val = irr_row.iloc[0].get(f"{role}_irr")
             if pd.notna(val):
                 st.write(f"- {role.replace('_',' ').title()}: {float(val):.3f}")
-
-    # Pedigree
+    # Árbol genealógico
     st.subheader('Árbol Genealógico')
     show_tree(row)
-
-    # Descendants
+    # Descendientes
     st.subheader('Descendientes')
-    desc = pd.concat([
-        df_gen[df_gen['padres'].str.split('|').str[0].str.split(':').str[0]==row['registro']],
-        df_gen[df_gen['padres'].str.split('|').str[1].str.split(':').str[0]==row['registro']]
+    children = pd.concat([
+        df_gen[df_gen['registro_padre'] == row['registro']],
+        df_gen[df_gen['registro_madre'] == row['registro']]
     ])
-    if not desc.empty:
-        cols = ['nombre','criadero','registro']
-        df_h = desc[cols].copy()
+    if not children.empty:
+        df_h = children[['registro','nombre','criadero','nacimiento','sexo']].copy()
         df_h = df_h.merge(df_ird[['registro','IRD']], on='registro', how='left')
-        df_h = df_h.merge(df_irr[['registro']+ [f"{r}_irr" for r in roles]], on='registro', how='left')
-        # Filters & ordering
-        sex = st.selectbox('Sexo',['Todos','Macho','Hembra'], key='sex')
-        has_ird = st.selectbox('Con IRD',['Todos','Con IRD','Sin IRD'], key='has_ird')
-        order = st.selectbox('Orden', ['Nombre','IRD'], key='order')
-        if sex!='Todos':
-            df_h = df_h[df_gen['sexo']==sex]
-        if has_ird!='Todos':
-            df_h = df_h[df_h['IRD'].notna()] if has_ird=='Con IRD' else df_h[df_h['IRD'].isna()]
-        if order=='Nombre':
-            df_h = df_h.sort_values('nombre')
-        else:
-            df_h = df_h.sort_values('IRD', ascending=False)
-        for idx, hr in df_h.iterrows():
-            if st.button(f"Perfil: {hr['nombre']} ({hr['registro']})"):
-                st.session_state.history.append(row['registro'])
-                show_profile(hr)
-
-# Main
-st.title('Genealogía Caballos Chilenos')
-q = st.text_input('Buscar registro o nombre/criadero')
-if q:
-    res = search_horse(q)
-    if res.empty:
-        st.warning('No encontrado')
-    else:
-        idx = res.index[0]
-        show_profile(res.loc[idx])
-        if st.session_state.history:
-            if st.button('Volver'):
-                prev = st.session_state.history.pop()
-                show_profile(df_gen[df_gen['registro']==prev].iloc[0])
-else:
-    st.info('Usa la búsqueda para encontrar un caballo.')
+        df_h = df_h.merge(
+            df_irr[['registro'] + [f"{r}_irr" for r in ['padre','madre','abuelo_paterno','abuela_paterna','abuelo_materno','abuela_materna']]],
+            on='registro', how='left'
+        )
+        sex = st.selectbox('Filtrar por sexo',['Todos','Macho','Hembra'], key='sex')
+        has_ird = st.selectbox('Filtrar IRD',['Todos','Con IRD','Sin IRD'], key='has_ird')
