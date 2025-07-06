@@ -44,11 +44,12 @@ def show_tree(row):
 # Show horse profile
 def show_profile(row):
     st.header(f"{row['nombre']} - {row['criadero']} (Reg: {row['registro']})")
-    st.text(f"Nacimiento: {row.get('ano_nacimiento','N/A')}    Sexo: {row.get('sexo','N/A')}    Color: {row.get('color','N/A')}")
+    st.text(f"Nacimiento: {row.get('nacimiento','N/A')}")
+   Color: {row.get('color','N/A')}")
     # IRD percentile
     ird_val = df_ird[df_ird['registro']==row['registro']]['IRD'].astype(float)
     if not ird_val.empty:
-        same_year = df_ird[df_gen['ano_nacimiento']==row['ano_nacimiento']]['IRD'].astype(float)
+        same_year = df_ird[df_gen['nacimiento']==row['nacimiento']]['IRD'].astype(float)
         pctl = (ird_val.iloc[0] >= same_year.quantile([0.01*i for i in range(100)])).sum() 
         st.metric('IRD', f"{ird_val.iloc[0]:.2f}", delta=f"Percentil: {pctl}%")
 
