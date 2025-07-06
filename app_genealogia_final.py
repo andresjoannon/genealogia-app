@@ -18,7 +18,7 @@ df_gen, df_ird, df_irr = load_data()
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# Función de búsqueda por registro o nombre+criadero
+# Función de búsqueda
 def search_horse(query):
     q = query.lower().strip()
     if q.isdigit():
@@ -68,11 +68,11 @@ def show_tree(row):
 def show_profile(row):
     st.header(f"{row['nombre']} - {row['criadero']} (Reg: {row['registro']})")
     st.text(
-        f"Nacimiento: {row.get('nacimiento','N/A')}    "
-        f"Sexo: {row.get('sexo','N/A')}    "
-        f"Color: {row.get('color','N/A')}"
+        f"Nacimiento: {row.get('nacimiento', 'N/A')}    "
+        f"Sexo: {row.get('sexo', 'N/A')}    "
+        f"Color: {row.get('color', 'N/A')}"
     )
-    # IRD y percentil en su año
+    # IRD
     ird_val = df_ird[df_ird['registro'] == row['registro']]['IRD'].astype(float)
     if not ird_val.empty:
         year = row.get('nacimiento')
@@ -87,7 +87,7 @@ def show_profile(row):
     st.subheader('IRR por rol')
     irr_row = df_irr[df_irr['registro'] == row['registro']]
     if not irr_row.empty:
-        for role in ['padre','madre','abuelo_paterno','abuela_paterna','abuelo_materno','abuela_materna']:
+        for role in ['padre', 'madre', 'abuelo_paterno', 'abuela_paterna', 'abuelo_materno', 'abuela_materna']:
             val = irr_row.iloc[0].get(f"{role}_irr")
             if pd.notna(val):
                 st.write(f"- {role.replace('_',' ').title()}: {float(val):.3f}")
@@ -107,5 +107,41 @@ def show_profile(row):
             df_irr[['registro'] + [f"{r}_irr" for r in ['padre','madre','abuelo_paterno','abuela_paterna','abuelo_materno','abuela_materna']]],
             on='registro', how='left'
         )
-        sex = st.selectbox('Filtrar por sexo',['Todos','Macho','Hembra'], key='sex')
-        has_ird = st.selectbox('Filtrar IRD',['Todos','Con IRD','Sin IRD'], key='has_ird')
+        sex = st.selectbox('Filtrar por sexo', ['Todos', 'Macho', 'Hembra'], key='sex')
+        has_ird = st.selectbox('Filtrar IRD', ['Todos', 'Con IRD', 'Sin IRD'], key='has_ird')
+        order = st.selectbox('Ordenar por', ['Nombre', 'Nacimiento', 'IRD', 'IRR'], key='order')
+        if sex != 'Todos':
+            df_h = df_h[df_h['sexo'] == sex]
+        if has_ird == 'Con IRD':
+            df_h = df_h[df_h['IRD'].notna()]
+        elif has_ird == 'Sin IRD':
+            df_h = df_h[df_h['IRD'].isna()]
+        if order == 'Nombre':
+            df_h = df_h.sort_values('nombre')
+        elif order == 'Nacimiento':
+            df_h = df_h.sort_values('nacimiento')
+        elif order == 'IRD':
+            df_h = df_h.sort_values('IRD', ascending=False)
+        else:
+            df_h = df_h.sort_values('padre_irr', ascending=False)
+        for _, hr in df_h.iterrows():
+            if st.button(f"Perfil: {hr['nombre']} (Reg: {hr['registro']})", key=hr['registro']):
+                st.session_state.history.append(row['registro'])
+                show_profile(hr)
+    # Botón volver
+    if st.session_state.history:
+        if st.button('Volver'):
+            prev = st.session_state.history.pop()
+            show_profile(df_gen[df_gen['registro'] == prev].iloc[0])
+
+# Interfaz principal
+st.title('Genealogía Caballos Chilenos')
+q = st.text_input('Buscar registro o nombre/criadero')
+if q:
+    res = search_horse(q)
+    if res.empty:
+        st.warning('No se encontró ningún caballo.')
+    else:
+        show_profile(res.iloc[0])
+else:
+    st.info('Usa la barra de búsqueda para encontrar un caballo.')
