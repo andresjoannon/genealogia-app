@@ -43,8 +43,14 @@ def show_tree(row):
 
 # Show horse profile
 def show_profile(row):
-    st.header(f"{row['nombre']} - {row['criadero']} (Reg: {row['registro']})")
-    st.text(f"Nacimiento: {row.get('nacimiento','N/A')}")
+        st.header(
+        f"{row['nombre']} - {row['criadero']} (Reg: {row['registro']})"
+    )
+    st.text(
+        f"Nacimiento: {row.get('nacimiento','N/A')}    "
+        f"Sexo: {row.get('sexo','N/A')}    "
+        f"Color: {row.get('color','N/A')}"
+    )
    Color: {row.get('color','N/A')}")
     # IRD percentile
     ird_val = df_ird[df_ird['registro']==row['registro']]['IRD'].astype(float)
